@@ -92,9 +92,6 @@ class VideoProcessThread(QThread):
 
             # Draw output
             output_video_frames = tracker.draw_annotations(video_frames, tracks, team_ball_control)
-            output_video_frames = camera_movement_estimator.draw_camera_movement(
-                output_video_frames, camera_movement_per_frame
-            )
             speed_and_distance_estimator.draw_speed_and_distance(output_video_frames, tracks)
 
             stats = self.calculate_statistics(tracks, team_ball_control)
