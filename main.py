@@ -15,6 +15,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import QThread, pyqtSignal, QUrl, Qt
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtMultimediaWidgets import QVideoWidget
+from database_utils import insert_match, insert_team_and_stats, insert_player_and_stats, fetch_all_matches, \
+    fetch_all_teamstats, fetch_all_players, fetch_all_playerstats, fetch_match, fetch_all_teams, fetch_team_colors
 import sys
 import os
 from utils import read_video
@@ -109,6 +111,36 @@ class VideoProcessThread(QThread):
             for frame in output_video_frames:
                 out.write(frame)
             out.release()
+
+            with open(output_path, 'rb') as f:
+                video_bytes = f.read()
+
+            match_id = insert_match(video_bytes, os.path.basename(output_path))
+
+            team_colors = {1: (0, 0, 0), 2: (0, 0, 0)}
+
+            for player_stats in stats['players'].values():
+                team = player_stats['team']
+                team_color = tuple(int(round(c)) for c in player_stats['team_color'])
+                if team in team_colors and team_colors[team] == (0, 0, 0):
+                    team_colors[team] = team_color
+
+            team1_poss = stats['team_possession']['team1']
+            team2_poss = stats['team_possession']['team2']
+
+            team1_color_str = ','.join(map(str, team_colors[1]))
+            team2_color_str = ','.join(map(str, team_colors[2]))
+
+            team1_id = insert_team_and_stats(match_id, team1_color_str, int(team1_poss))
+            team2_id = insert_team_and_stats(match_id, team2_color_str, int(team2_poss))
+
+            # Зберегти статистику гравців
+            for player_id, player_stats in stats['players'].items():
+                team = player_stats['team']
+                team_id = team1_id if team == 1 else team2_id
+                distance = player_stats['total_distance']
+                speed = player_stats['avg_speed']
+                insert_player_and_stats(team_id, match_id, int(player_id), distance, speed)
 
             self.finished.emit(output_path, stats)
 
@@ -254,6 +286,18 @@ class Window(QMainWindow):
         self.processing_thread = None
 
         self.init_ui()
+        self.load_video_history()
+
+    def load_video_history(self):
+        self.video_list.clear()
+        matches = fetch_all_matches()
+        for match in matches:
+            video_name = match['match_video_name']
+            match_id = match['match_id']
+
+            item = QListWidgetItem(video_name)
+            item.setData(Qt.UserRole, match_id)
+            self.video_list.addItem(item)
 
     def init_ui(self):
         main_layout = QHBoxLayout()
@@ -540,35 +584,72 @@ class Window(QMainWindow):
         if output_path:
             video_name = os.path.basename(output_path)
 
-            if not os.path.exists(output_path):
-                self.show_error_message(f'Файл {output_path} не знайдено!')
-                return
+            # Отримуємо список матчів
+            matches = fetch_all_matches()
+            match = next((m for m in matches if m['match_video_name'] == video_name), None)
 
-            self.processed_videos[video_name] = {
-                'path': output_path,
-                'stats': stats
-            }
+            if match:
+                item = QListWidgetItem(video_name)
+                item.setData(Qt.UserRole, match['match_id'])  # збереження match_id
+                self.video_list.addItem(item)
+                self.video_list.setCurrentItem(item)
 
-            item = QListWidgetItem(video_name)
-            self.video_list.addItem(item)
-            self.video_list.setCurrentItem(item)
-
-            print(f'Відео оброблено і збережено в: {output_path}')
 
     def video_selected(self, current):
         if current:
             video_name = current.text()
-            if video_name in self.processed_videos:
-                video_data = self.processed_videos[video_name]
-                self.current_video = video_data['path']
+            match_id = current.data(Qt.UserRole)
 
-                if not os.path.exists(self.current_video):
-                    self.show_error_message(f'Файл {self.current_video} не знайдено!')
-                    return
+            # Дістаємо відео з БД і зберігаємо тимчасово
+            video = fetch_match(match_id)
 
-                print(f'Завантаження відео: {self.current_video}')
-                self.load_video(self.current_video)
-                self.display_statistics(video_data['stats'])
+            if not video:
+                self.show_error_message('Відео не знайдено в базі даних.')
+                return
+
+            video_bytes = video[0]
+            temp_path = os.path.join("temp", f"{video_name}")
+            os.makedirs("temp", exist_ok=True)
+            with open(temp_path, 'wb') as f:
+                f.write(video_bytes)
+
+            self.current_video = temp_path
+            self.load_video(temp_path)
+
+            # Завантаження статистики
+            team_colors_map = fetch_team_colors(match_id)
+
+            teamstats = fetch_all_teamstats()
+            teamstats = [t for t in teamstats if t['match_id'] == match_id]
+
+            players = fetch_all_players()
+            players = [p for p in players if p['match_id'] == match_id]
+
+            playerstats = fetch_all_playerstats()
+            playerstats = [s for s in playerstats if s['match_id'] == match_id]
+
+            stats = {
+                'team_possession': {},
+                'players': {}
+            }
+
+            for t in teamstats:
+                color = t['team_id'][-1]  # умовне розділення
+                key = 'team1' if color in ('1', 'a', 'b') else 'team2'
+                stats['team_possession'][key] = t['ball_possession']
+
+            for p in players:
+                stat = next((s for s in playerstats if s['player_id'] == p['player_id']), None)
+                if stat:
+                    stats['players'][p['player_number']] = {
+                        'avg_speed': stat['avg_speed'],
+                        'total_distance': stat['distance'],
+                        'team': 1 if p['team_id'] == teamstats[0]['team_id'] else 2,
+                        'team_color': tuple(int(round(float(c))) for c in team_colors_map.get(p['team_id'], (0, 0, 0)))
+                    }
+
+            self.display_statistics(stats)
+
 
     def show_error_message(self, message):
         self.player_status.setText(f'ПОМИЛКА: {message}')
@@ -576,14 +657,12 @@ class Window(QMainWindow):
 
     def load_video(self, video_path):
         abs_path = os.path.abspath(video_path)
-        print(f'Абсолютний шлях до відео: {abs_path}')
 
         if not os.path.exists(abs_path):
             self.show_error_message(f'Файл не знайдено: {abs_path}')
             return
 
         url = QUrl.fromLocalFile(abs_path)
-        print(f'URL для відтворення: {url.toString()}')
 
         content = QMediaContent(url)
         self.media_player.setMedia(content)
@@ -645,12 +724,16 @@ class Window(QMainWindow):
             self.team1_possession.setText(f'{team1_possession:.1f}%')
             self.team2_possession.setText(f'{team2_possession:.1f}%')
 
+            match_id = self.video_list.currentItem().data(Qt.UserRole)
+            team_colors_raw = fetch_team_colors(match_id)
+
             if 'players' in stats and stats['players']:
                 team_colors = {}
-                for player_id, player_stats in stats['players'].items():
-                    team = player_stats.get('team')
-                    if team and 'team_color' in player_stats:
-                        team_colors[team] = player_stats['team_color']
+                for team_id, color_tuple in team_colors_raw.items():
+                    color = tuple(int(round(float(c))) for c in color_tuple)
+                    # визначаємо команду 1 або 2, виходячи з порядку (або логіки імені team_id)
+                    key = 1 if team_id == list(team_colors_raw.keys())[0] else 2
+                    team_colors[key] = color
 
                 if 1 in team_colors:
                     color = team_colors[1]
