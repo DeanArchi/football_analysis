@@ -42,32 +42,25 @@ class VideoProcessThread(QThread):
         try:
             video_frames = read_video(self.video_path)
 
-            # Initialize Tracker
             tracker = Tracker('models/best.pt')
             tracks = tracker.get_object_tracks(video_frames, read_from_stub=False, stub_path='stubs/track_stubs.pkl')
 
-            # Get object positions
             tracker.add_position_to_tracks(tracks)
 
-            # Camera movement estimator
             camera_movement_estimator = CameraMovementEstimator(video_frames[0])
             camera_movement_per_frame = camera_movement_estimator.get_camera_movement(
                 video_frames, read_from_stub=False, stub_path='stubs/camera_movement_stub.pkl'
             )
             camera_movement_estimator.add_adjust_positions_to_tracks(tracks, camera_movement_per_frame)
 
-            # View Transformer
             view_transformer = ViewTransformer()
             view_transformer.add_transformed_position_to_tracks(tracks)
 
-            # Interpolate Ball Positions
             tracks['ball'] = tracker.interpolate_ball_positions(tracks['ball'])
 
-            # Speed and distance estimator
             speed_and_distance_estimator = SpeedAndDistanceEstimator()
             speed_and_distance_estimator.add_speed_and_distance_to_tracks(tracks)
 
-            # Assign Player Teams
             team_assigner = TeamAssigner()
             team_assigner.assign_team_color(video_frames[0], tracks['players'][0])
             for frame_num, player_track in enumerate(tracks['players']):
@@ -76,7 +69,6 @@ class VideoProcessThread(QThread):
                     tracks['players'][frame_num][player_id]['team'] = team
                     tracks['players'][frame_num][player_id]['team_color'] = team_assigner.team_colors[team]
 
-            # Assign Ball Acquisition
             player_assigner = PlayerBallAssigner()
             team_ball_control = []
             for frame_num, player_track in enumerate(tracks['players']):
@@ -93,7 +85,6 @@ class VideoProcessThread(QThread):
 
             team_ball_control = np.array(team_ball_control)
 
-            # Draw output
             output_video_frames = tracker.draw_annotations(video_frames, tracks, team_ball_control)
             speed_and_distance_estimator.draw_speed_and_distance(output_video_frames, tracks)
 
@@ -134,7 +125,6 @@ class VideoProcessThread(QThread):
             team1_id = insert_team_and_stats(match_id, team1_color_str, int(team1_poss))
             team2_id = insert_team_and_stats(match_id, team2_color_str, int(team2_poss))
 
-            # Зберегти статистику гравців
             for player_id, player_stats in stats['players'].items():
                 team = player_stats['team']
                 team_id = team1_id if team == 1 else team2_id
@@ -301,18 +291,15 @@ class Window(QMainWindow):
 
     def init_ui(self):
         main_layout = QHBoxLayout()
-        main_layout.setSpacing(15)  # Додаємо більше простору між панелями
+        main_layout.setSpacing(15)
 
-        # Ліва панель (список відео)
         left_panel = QVBoxLayout()
         left_panel.setContentsMargins(10, 10, 10, 10)
 
-        # Заголовок лівої панелі
         left_title = QLabel('Відеофайли')
         left_title.setStyleSheet('font-size: 18px; font-weight: bold; margin-bottom: 10px; color: #34495e;')
         left_panel.addWidget(left_title)
 
-        # Кнопка завантаження
         self.upload_button = QPushButton('Завантажити відео')
         self.upload_button.setStyleSheet("""
             QPushButton {
@@ -333,7 +320,6 @@ class Window(QMainWindow):
         self.upload_button.clicked.connect(self.upload_video)
         left_panel.addWidget(self.upload_button)
 
-        # Список відео
         list_container = QVBoxLayout()
         list_label = QLabel('Оброблені відео:')
         list_label.setStyleSheet('font-size: 14px; font-weight: bold; margin-bottom: 5px;')
@@ -370,11 +356,9 @@ class Window(QMainWindow):
         left_widget.setStyleSheet("background-color: white; border-radius: 8px;")
         main_layout.addWidget(left_widget)
 
-        # Права панель (відео + статистика)
         right_panel = QVBoxLayout()
         right_panel.setContentsMargins(0, 10, 10, 10)
 
-        # Створення прокручуваної області для правої панелі
         right_scroll_area = QScrollArea()
         right_scroll_area.setWidgetResizable(True)
         right_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -385,29 +369,24 @@ class Window(QMainWindow):
         right_scroll_layout = QVBoxLayout(right_scroll_widget)
         right_scroll_layout.setSpacing(15)
 
-        # Контейнер для відео
         self.video_container = QWidget()
         self.video_container.setStyleSheet("background-color: white; border-radius: 8px; padding: 10px;")
         video_layout = QVBoxLayout(self.video_container)
 
-        # Заголовок відео
         video_title = QLabel('Перегляд відео')
         video_title.setStyleSheet('font-size: 18px; font-weight: bold; margin-bottom: 10px; color: #34495e;')
         video_layout.addWidget(video_title)
 
-        # Відеоплеєр
         self.media_player = QMediaPlayer(None, QMediaPlayer.VideoSurface)
         self.media_player.error.connect(self.handle_player_error)
         self.media_player.stateChanged.connect(self.media_state_changed)
 
-        # Відеовіджет
         self.video_widget = QVideoWidget()
         self.video_widget.setMinimumHeight(360)
         self.video_widget.setStyleSheet("background-color: #2c3e50; border-radius: 4px;")
         self.media_player.setVideoOutput(self.video_widget)
         video_layout.addWidget(self.video_widget)
 
-        # Елементи керування відео
         player_controls = QHBoxLayout()
         player_controls.setContentsMargins(0, 10, 0, 10)
 
@@ -452,7 +431,6 @@ class Window(QMainWindow):
 
         video_layout.addLayout(player_controls)
 
-        # Статус відтворення
         status_container = QHBoxLayout()
         status_icon = QLabel()
         status_icon.setPixmap(QIcon.fromTheme("dialog-information").pixmap(16, 16))
@@ -465,7 +443,6 @@ class Window(QMainWindow):
 
         video_layout.addLayout(status_container)
 
-        # Прогрес обробки
         progress_container = QVBoxLayout()
         self.progress_label = QLabel('Відео обробляється, будь ласка зачекайте...')
         self.progress_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
@@ -473,20 +450,16 @@ class Window(QMainWindow):
         self.progress_label.hide()
         video_layout.addLayout(progress_container)
 
-        # Додаємо відео контейнер до прокручуваної області
         right_scroll_layout.addWidget(self.video_container)
 
-        # Створюємо контейнер для статистики
         stats_widget = QWidget()
         stats_widget.setStyleSheet("background-color: white; border-radius: 8px; padding: 15px;")
         self.stats_container = QVBoxLayout(stats_widget)
 
-        # Заголовок статистики
         stats_title = QLabel('Статистика матчу')
         stats_title.setStyleSheet('font-size: 18px; font-weight: bold; margin-bottom: 15px; color: #34495e;')
         self.stats_container.addWidget(stats_title)
 
-        # Контейнер для володіння м'ячем
         possession_container = QWidget()
         possession_container.setStyleSheet("background-color: #ecf0f1; border-radius: 6px; padding: 10px;")
         possession_layout = QVBoxLayout(possession_container)
@@ -509,25 +482,20 @@ class Window(QMainWindow):
 
         self.stats_container.addWidget(possession_container)
 
-        # Заголовок для статистики гравців
         players_title = QLabel('Статистика гравців:')
         players_title.setStyleSheet(
             'font-size: 16px; font-weight: bold; margin-top: 15px; margin-bottom: 10px; color: #2c3e50;')
         self.stats_container.addWidget(players_title)
 
-        # Контейнер для статистики гравців - прибрано окрему прокрутку
         players_container = QWidget()
         players_container.setStyleSheet("background-color: #ecf0f1; border-radius: 6px; padding: 10px;")
         self.players_stats_container = QVBoxLayout(players_container)
-        self.players_stats_container.setSpacing(10)  # Збільшуємо відстань між елементами
+        self.players_stats_container.setSpacing(10)
 
-        # Додаємо контейнер безпосередньо до stats_container
         self.stats_container.addWidget(players_container)
 
-        # Додаємо віджет статистики до прокручуваної області
         right_scroll_layout.addWidget(stats_widget)
 
-        # Встановлюємо остаточну прокручувану область до правої панелі
         right_scroll_area.setWidget(right_scroll_widget)
         right_panel.addWidget(right_scroll_area)
 
@@ -584,13 +552,12 @@ class Window(QMainWindow):
         if output_path:
             video_name = os.path.basename(output_path)
 
-            # Отримуємо список матчів
             matches = fetch_all_matches()
             match = next((m for m in matches if m['match_video_name'] == video_name), None)
 
             if match:
                 item = QListWidgetItem(video_name)
-                item.setData(Qt.UserRole, match['match_id'])  # збереження match_id
+                item.setData(Qt.UserRole, match['match_id'])
                 self.video_list.addItem(item)
                 self.video_list.setCurrentItem(item)
 
@@ -600,7 +567,6 @@ class Window(QMainWindow):
             video_name = current.text()
             match_id = current.data(Qt.UserRole)
 
-            # Дістаємо відео з БД і зберігаємо тимчасово
             video = fetch_match(match_id)
 
             if not video:
@@ -616,7 +582,6 @@ class Window(QMainWindow):
             self.current_video = temp_path
             self.load_video(temp_path)
 
-            # Завантаження статистики
             team_colors_map = fetch_team_colors(match_id)
 
             teamstats = fetch_all_teamstats()
@@ -634,7 +599,7 @@ class Window(QMainWindow):
             }
 
             for t in teamstats:
-                color = t['team_id'][-1]  # умовне розділення
+                color = t['team_id'][-1]
                 key = 'team1' if color in ('1', 'a', 'b') else 'team2'
                 stats['team_possession'][key] = t['ball_possession']
 
@@ -731,7 +696,6 @@ class Window(QMainWindow):
                 team_colors = {}
                 for team_id, color_tuple in team_colors_raw.items():
                     color = tuple(int(round(float(c))) for c in color_tuple)
-                    # визначаємо команду 1 або 2, виходячи з порядку (або логіки імені team_id)
                     key = 1 if team_id == list(team_colors_raw.keys())[0] else 2
                     team_colors[key] = color
 

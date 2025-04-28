@@ -31,11 +31,10 @@ class Tracker:
         ball_positions = [x.get(1, {}).get('bbox', []) for x in ball_positions]
         df_ball_positions = pd.DataFrame(ball_positions, columns=['x1', 'y1', 'x2', 'y2'])
 
-        # Interpolate missing values
         df_ball_positions = df_ball_positions.interpolate()
         df_ball_positions = df_ball_positions.bfill()
 
-        ball_positions = [{1: {"bbox": x}} for x in df_ball_positions.to_numpy().tolist()]
+        ball_positions = [{1: {'bbox': x}} for x in df_ball_positions.to_numpy().tolist()]
 
         return ball_positions
 
@@ -65,15 +64,12 @@ class Tracker:
             cls_names = detection.names
             cls_names_inv = {v: k for k, v in cls_names.items()}
 
-            # Covert to supervision Detection format
             detection_supervision = sv.Detections.from_ultralytics(detection)
 
-            # Convert GoalKeeper to player object
             for object_ind, class_id in enumerate(detection_supervision.class_id):
                 if cls_names[class_id] == 'goalkeeper':
                     detection_supervision.class_id[object_ind] = cls_names_inv['player']
 
-            # Track Objects
             detection_with_tracks = self.tracker.update_with_detections(detection_supervision)
 
             tracks['players'].append({})
@@ -210,23 +206,19 @@ class Tracker:
             ball_dict = tracks['ball'][frame_num]
             referee_dict = tracks['referees'][frame_num]
 
-            # Draw Players
             for track_id, player in player_dict.items():
                 color = player.get('team_color', (0, 0, 255))
                 frame = self.draw_ellipse(frame, player['bbox'], color, track_id)
 
                 if player.get('has_ball', False):
-                    frame = self.draw_triangle(frame, player["bbox"], (0, 0, 255))
+                    frame = self.draw_triangle(frame, player['bbox'], (0, 0, 255))
 
-            # Draw Referee
             for _, referee in referee_dict.items():
                 frame = self.draw_ellipse(frame, referee['bbox'], (0, 255, 255))
 
-            # Draw ball
             for track_id, ball in ball_dict.items():
                 frame = self.draw_triangle(frame, ball['bbox'], (0, 255, 0))
 
-            # Draw Team Ball Control
             frame = self.draw_team_ball_control(frame, frame_num, team_ball_control)
 
             output_video_frames.append(frame)
